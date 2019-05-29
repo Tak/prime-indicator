@@ -9,15 +9,41 @@ class PrimeIndicator
     @reboot_required = false
   end
 
-  def request_switch()
-    pid = Process.spawn("gksu --sudo-mode --message 'Elevated privileges are required to switch the selected graphics card' -- prime-select #{@current}")
-    Process.wait(pid)
-    if ($?.exitstatus == 0)
-      pid = Process.spawn("gksu --sudo-mode --message 'Elevated privileges are required to switch the selected graphics card' -- cp /etc/X11/xorg.conf.#{@current} /etc/X11/xorg.conf")
+  def self.check_program_using_help(program)
+    begin
+      pid = Process.spawn("#{program} --help")
       Process.wait(pid)
       return $?.exitstatus == 0
+    rescue
     end
     return false
+  end
+
+  def self.get_valid_elevator()
+    if (check_program_using_help('gksu'))
+      return "gksu --sudo-mode --message 'Elevated privileges are required to switch the selected graphics card' --"
+    elsif (check_program_using_help('pkexec'))
+      return 'pkexec'
+    else
+      # Not sure whether it's better to override a rarely configured askpass
+      # or to try to guess one
+      return "sudo -HA --"
+    end
+  end
+
+  def self.run_command_using_permission_elevator(elevator, command)
+    command = "#{elevator} #{command}"
+    print(command)
+    pid = Process.spawn(command)
+    Process.wait(pid)
+    return ($?.exitstatus == 0)
+  end
+
+  def request_switch
+    elevator = PrimeIndicator.get_valid_elevator()
+    return (PrimeIndicator.run_command_using_permission_elevator(elevator, "prime-select #{@current}")) ?
+      PrimeIndicator.run_command_using_permission_elevator(elevator, "cp /etc/X11/xorg.conf.#{@current} /etc/X11/xorg.conf") :
+      false
   end
 
   def request_reboot()
@@ -26,7 +52,8 @@ class PrimeIndicator
     response = dialog.run()
     dialog.destroy()
     if (response == 0)
-      pid = Process.spawn("gksu --sudo-mode --message 'Elevated privileges are required to reboot' -- reboot")
+      elevator = PrimeIndicator.get_valid_elevator()
+      pid = Process.spawn("#{elevator} reboot")
       Process.detach(pid)
     end
   end
@@ -41,8 +68,12 @@ class PrimeIndicator
     @nvidia.sensitive = false
   end
 
-  def toggle_selection(menu_item)
+  def toggle_current()
     @current = (if @current == :nvidia then :intel else :nvidia end)
+  end
+
+  def toggle_selection(menu_item)
+    toggle_current()
     puts("Selected #{@current}")
     disable_menu_items()
 
@@ -55,10 +86,11 @@ class PrimeIndicator
         menu_item.label += '(*)'
         request_reboot()
       end
-      enable_menu_items()
     else
       puts("Unable to request switch!")
+      toggle_current()
     end
+    enable_menu_items()
   end
 
   def enable()

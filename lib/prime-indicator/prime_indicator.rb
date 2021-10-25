@@ -4,9 +4,17 @@ module PrimeIndicator
   class PrimeIndicator
     NVIDIA_DISPLAY = 'Nvidia'
     INTEL_DISPLAY = 'Intel'
+    ONDEMAND_DISPLAY = 'On Demand'
+
+    MENU_ITEMS = {
+      nvidia: NVIDIA_DISPLAY,
+      intel: INTEL_DISPLAY,
+      "on-demand": ONDEMAND_DISPLAY
+    }
 
     def initialize()
       @reboot_required = false
+      @items = []
     end
 
     def self.check_program_using_help(program)
@@ -59,21 +67,18 @@ module PrimeIndicator
     end
 
     def enable_menu_items()
-      @intel.sensitive = true
-      @nvidia.sensitive = true
+      @items.each do |item|
+        item.sensitive = true
+      end
     end
 
     def disable_menu_items()
-      @intel.sensitive = false
-      @nvidia.sensitive = false
-    end
-
-    def toggle_current()
-      @current = @current == :nvidia ? :intel : :nvidia
+      @items.each do |item|
+        item.sensitive = false
+      end
     end
 
     def toggle_selection(menu_item)
-      toggle_current()
       puts("Selected #{@current}")
       disable_menu_items()
 
@@ -88,14 +93,13 @@ module PrimeIndicator
         end
       else
         puts("Unable to request switch!")
-        toggle_current()
       end
       enable_menu_items()
     end
 
     def enable()
       query()
-      selection_display = @current == :nvidia ? NVIDIA_DISPLAY : INTEL_DISPLAY
+      selection_display = MENU_ITEMS[@current] || ONDEMAND_DISPLAY
       @icon = Gtk::StatusIcon.new()
       # TODO: better icon
       @icon.file = '/usr/share/pixmaps/nvidia-settings.png'
@@ -103,23 +107,20 @@ module PrimeIndicator
       @icon.visible = true
 
       @menu = Gtk::Menu.new()
-      @nvidia = Gtk::RadioMenuItem.new(nil, NVIDIA_DISPLAY)
-      @nvidia.active = (@current == :nvidia)
-      @nvidia.signal_connect('toggled'){ |item|
-        if (item.active?)
-          toggle_selection(item)
-        end
-      }
-      @menu.append(@nvidia)
-
-      @intel = Gtk::RadioMenuItem.new(@nvidia, INTEL_DISPLAY)
-      @intel.active = (@current == :intel)
-      @intel.signal_connect('toggled'){ |item|
-        if (item.active?)
-          toggle_selection(item)
-        end
-      }
-      @menu.append(@intel)
+      group = nil
+      MENU_ITEMS.each do |sym, display|
+        item = Gtk::RadioMenuItem.new(group, display)
+        group ||= item
+        item.active = (@current == sym)
+        item.signal_connect('toggled'){ |item|
+          if item.active?
+            @current = sym
+            toggle_selection(item)
+          end
+        }
+        @menu.append(item)
+        @items << item
+      end
       @menu.show_all()
 
       @icon.signal_connect('activate') do |icon|
